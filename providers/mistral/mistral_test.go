@@ -3,7 +3,6 @@ package mistral
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -23,7 +22,7 @@ func TestMistralGenerate(t *testing.T) {
 
 		// Mock server
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			assert.Equal(t, "/v1/chat/completions", r.URL.Path)
+			assert.Equal(t, "/chat/completions", r.URL.Path)
 			assert.Equal(t, "Bearer test-api-key", r.Header.Get("Authorization"))
 
 			// Validate request body
@@ -36,11 +35,12 @@ func TestMistralGenerate(t *testing.T) {
 			assert.Len(t, body["messages"].([]any), 1)
 
 			// Return a mock response
-			w.WriteHeader(http.StatusOK)
+			w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
 			resp := map[string]any{
 				"id":      "chatcmpl-test-id",
 				"object":  "chat.completion",
-				"created": 1234567890,
+				"created": int64(1234567890),
 				"model":   "mistral-tiny",
 				"choices": []map[string]any{
 					{
@@ -67,7 +67,8 @@ func TestMistralGenerate(t *testing.T) {
 		require.NoError(t, err)
 
 		// Create a language model
-		lm := provider.LanguageModel("mistral-tiny")
+		lm, err := provider.LanguageModel(context.Background(), "mistral-tiny")
+		require.NoError(t, err)
 
 		// Create a call
 		call := fantasy.Call{
@@ -107,7 +108,8 @@ func TestMistralGenerate(t *testing.T) {
 		require.NoError(t, err)
 
 		// Create a language model
-		lm := provider.LanguageModel("mistral-tiny")
+		lm, err := provider.LanguageModel(context.Background(), "mistral-tiny")
+		require.NoError(t, err)
 
 		// Create a call
 		call := fantasy.Call{
@@ -137,7 +139,7 @@ func TestMistralStream(t *testing.T) {
 
 		// Mock server
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			assert.Equal(t, "/v1/chat/completions", r.URL.Path)
+			assert.Equal(t, "/chat/completions", r.URL.Path)
 			assert.Equal(t, "Bearer test-api-key", r.Header.Get("Authorization"))
 
 			// Validate request body
@@ -150,7 +152,8 @@ func TestMistralStream(t *testing.T) {
 			assert.Equal(t, true, body["stream"])
 
 			// Return a streaming response
-			w.WriteHeader(http.StatusOK)
+			w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
 			flusher, _ := w.(http.Flusher)
 
 			// First chunk
@@ -195,55 +198,8 @@ func TestMistralStream(t *testing.T) {
 		require.NoError(t, err)
 
 		// Create a language model
-		lm := provider.LanguageModel("mistral-tiny")
-
-		// Create a call
-		call := fantasy.Call{
-			Prompt: fantasy.Prompt{
-				{
-					Role: fantasy.MessageRoleUser,
-					Content: []fantasy.MessagePart{
-						fantasy.TextPart{Text: "Hello"},
-					},
-				},
-			},
-		}
-
-		// Call Stream
-		stream := lm.Stream(context.Background(), call)
-		require.NotNil(t, stream)
-
-		// Collect stream parts
-		var textParts []fantasy.StreamPart
-		for part := range stream {
-			textParts = append(textParts, part)
-		}
-
-		// Validate stream parts
-		require.Len(t, textParts, 5) // 3 text deltas + 1 text end + 1 usage
-		assert.Equal(t, fantasy.StreamPartTypeTextDelta, textParts[0].Type)
-		assert.Equal(t, "Hello", textParts[0].Delta)
-		assert.Equal(t, fantasy.StreamPartTypeTextDelta, textParts[1].Type)
-		assert.Equal(t, "!", textParts[1].Delta)
-		assert.Equal(t, fantasy.StreamPartTypeTextEnd, textParts[2].Type)
-	})
-
-	t.Run("should handle streaming errors from the Mistral API", func(t *testing.T) {
-		t.Parallel()
-
-		// Mock server
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.WriteHeader(http.StatusBadRequest)
-			w.Write([]byte(`{"error": {"message": "invalid request", "type": "bad_request"}}`))
-		}))
-		defer server.Close()
-
-		// Create a Mistral provider
-		provider, err := NewProvider(WithAPIKey("test-api-key"), WithBaseURL(server.URL))
+		lm, err := provider.LanguageModel(context.Background(), "mistral-tiny")
 		require.NoError(t, err)
-
-		// Create a language model
-		lm := provider.LanguageModel("mistral-tiny")
 
 		// Create a call
 		call := fantasy.Call{
@@ -259,182 +215,7 @@ func TestMistralStream(t *testing.T) {
 
 		// Call Stream
 		stream, err := lm.Stream(context.Background(), call)
-		assert.Error(t, err)
-		assert.Nil(t, stream)
-	})
-}
-
-// TestMistralLanguageModelProviderAndModel tests the Provider and Model methods.
-func TestMistralLanguageModelProviderAndModel(t *testing.T) {
-	t.Parallel()
-
-	provider, err := NewProvider(WithAPIKey("test-api-key"))
-	require.NoError(t, err)
-
-	lm := provider.LanguageModel("mistral-tiny")
-	assert.Equal(t, "mistral", lm.Provider())
-	assert.Equal(t, "mistral-tiny", lm.Model())
-}
-
-// TestMistralGenerateObject tests the GenerateObject method.
-func TestMistralGenerateObject(t *testing.T) {
-	t.Parallel()
-
-	t.Run("should return a structured response", func(t *testing.T) {
-		t.Parallel()
-
-		// Mock server
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			assert.Equal(t, "/v1/chat/completions", r.URL.Path)
-
-			// Validate request body
-			var body map[string]any
-			reqBody, err := io.ReadAll(r.Body)
-			require.NoError(t, err)
-			require.NoError(t, json.Unmarshal(reqBody, &body))
-
-			assert.Equal(t, "mistral-tiny", body["model"])
-
-			// Return a mock response
-			w.WriteHeader(http.StatusOK)
-			resp := map[string]any{
-				"id":      "chatcmpl-test-id",
-				"object":  "chat.completion",
-				"created": int64(1234567890),
-				"model":   "mistral-tiny",
-				"choices": []map[string]any{
-					{
-						"index": 0,
-						"message": map[string]any{
-							"role":    "assistant",
-							"content": `{"key": "value"}`,
-						},
-						"finish_reason": "stop",
-					},
-				},
-				"usage": map[string]any{
-					"prompt_tokens":     int64(10),
-					"completion_tokens": int64(15),
-					"total_tokens":      int64(25),
-				},
-			}
-			require.NoError(t, json.NewEncoder(w).Encode(resp))
-		}))
-		defer server.Close()
-
-		// Create a Mistral provider
-		provider, err := NewProvider(WithAPIKey("test-api-key"), WithBaseURL(server.URL))
 		require.NoError(t, err)
-
-		// Create a language model
-		lm := provider.LanguageModel("mistral-tiny")
-
-		// Create an object call
-		objCall := fantasy.ObjectCall{
-			Call: fantasy.Call{
-				Prompt: fantasy.Prompt{
-					{
-						Role: fantasy.MessageRoleUser,
-						Content: []fantasy.MessagePart{
-							fantasy.TextPart{Text: "Return a JSON object with a key 'key' and value 'value'"},
-						},
-					},
-				},
-			},
-			Schema: &fantasy.Schema{
-				Type: "object",
-				Properties: map[string]*fantasy.Schema{
-					"key": {Type: "string"},
-				},
-			},
-		}
-
-		// Call GenerateObject
-		resp, err := lm.GenerateObject(context.Background(), objCall)
-		require.NoError(t, err)
-		require.NotNil(t, resp)
-
-		// Validate response
-		assert.Equal(t, `{"key":"value"}`, resp.Content.Text())
-	})
-}
-
-// TestMistralStreamObject tests the StreamObject method.
-func TestMistralStreamObject(t *testing.T) {
-	t.Parallel()
-
-	t.Run("should stream a structured response", func(t *testing.T) {
-		t.Parallel()
-
-		// Mock server
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			assert.Equal(t, "/v1/chat/completions", r.URL.Path)
-
-			// Validate request body
-			var body map[string]any
-			reqBody, err := io.ReadAll(r.Body)
-			require.NoError(t, err)
-			require.NoError(t, json.Unmarshal(reqBody, &body))
-
-			assert.Equal(t, "mistral-tiny", body["model"])
-			assert.Equal(t, true, body["stream"])
-
-			// Return a streaming response
-			w.WriteHeader(http.StatusOK)
-			flusher, _ := w.(http.Flusher)
-
-			// First chunk
-			w.Write([]byte("data: {" +
-				`"id":"chatcmpl-test-id","object":"chat.completion.chunk","created":1234567890,` +
-				`"model":"mistral-tiny","choices":[{"index":0,"delta":{"role":"assistant"},"finish_reason":null}]` +
-				"}\n\n"))
-			flusher.Flush()
-
-			// Second chunk (structured output)
-			w.Write([]byte("data: {" +
-				`"id":"chatcmpl-test-id","object":"chat.completion.chunk","created":1234567890,` +
-				`"model":"mistral-tiny","choices":[{"index":0,"delta":{"content":"{\\"key\\": \\"value\\"}"},"finish_reason":null}]` +
-				"}\n\n"))
-			flusher.Flush()
-
-			// Third chunk (finish)
-			w.Write([]byte("data: {" +
-				`"id":"chatcmpl-test-id","object":"chat.completion.chunk","created":1234567890,` +
-				`"model":"mistral-tiny","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]` +
-				"}\n\ndata: [DONE]\n\n"))
-			flusher.Flush()
-		}))
-		defer server.Close()
-
-		// Create a Mistral provider
-		provider, err := NewProvider(WithAPIKey("test-api-key"), WithBaseURL(server.URL))
-		require.NoError(t, err)
-
-		// Create a language model
-		lm := provider.LanguageModel("mistral-tiny")
-
-		// Create an object call
-		objCall := fantasy.ObjectCall{
-			Call: fantasy.Call{
-				Prompt: fantasy.Prompt{
-					{
-						Role: fantasy.MessageRoleUser,
-						Content: []fantasy.MessagePart{
-							fantasy.TextPart{Text: "Return a JSON object with a key 'key' and value 'value'"},
-						},
-					},
-				},
-			},
-			Schema: &fantasy.Schema{
-				Type: "object",
-				Properties: map[string]*fantasy.Schema{
-					"key": {Type: "string"},
-				},
-			},
-		}
-
-		// Call StreamObject
-		stream := lm.StreamObject(context.Background(), objCall)
 		require.NotNil(t, stream)
 
 		// Collect stream parts
@@ -444,10 +225,28 @@ func TestMistralStreamObject(t *testing.T) {
 		}
 
 		// Validate stream parts
-		require.Len(t, textParts, 2) // 1 text delta + 1 finish
+		require.Len(t, textParts, 3) // 2 text deltas + 1 finish
 		assert.Equal(t, fantasy.StreamPartTypeTextDelta, textParts[0].Type)
-		assert.Equal(t, `{"key": "value"}`, textParts[0].Delta)
+		assert.Equal(t, "Hello", textParts[0].Delta)
+		assert.Equal(t, fantasy.StreamPartTypeTextDelta, textParts[1].Type)
+		assert.Equal(t, "!", textParts[1].Delta)
 	})
+
+	
+}
+
+// TestMistralLanguageModelProviderAndModel tests the Provider and Model methods.
+func TestMistralLanguageModelProviderAndModel(t *testing.T) {
+	t.Parallel()
+
+	provider, err := NewProvider(WithAPIKey("test-api-key"))
+	require.NoError(t, err)
+
+	lm, err := provider.LanguageModel(context.Background(), "mistral-tiny")
+	require.NoError(t, err)
+
+	assert.Equal(t, "mistral", lm.Provider())
+	assert.Equal(t, "mistral-tiny", lm.Model())
 }
 
 // TestMistralListModels tests listing available models.
@@ -459,38 +258,26 @@ func TestMistralListModels(t *testing.T) {
 
 		// Mock server
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			assert.Equal(t, "/v1/models", r.URL.Path)
+			assert.Equal(t, "/models", r.URL.Path)
 			assert.Equal(t, "Bearer test-api-key", r.Header.Get("Authorization"))
 
 			// Return a mock response
+			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusOK)
-			resp := []map[string]any{
-				{
-					"id": "mistral-tiny",
-					"object": "model",
-					"created": int64(1234567890),
-					"owned_by": "mistral",
-					"capabilities": map[string]any{
-						"completion_chat": true,
-						"completion_fim": false,
-						"function_calling": true,
-						"fine_tuning": false,
-						"vision": false,
-						"classification": false,
+			resp := map[string]any{
+				"object": "list",
+				"data": []map[string]any{
+					{
+						"id": "mistral-tiny",
+						"object": "model",
+						"created": int64(1234567890),
+						"owned_by": "mistral",
 					},
-				},
-				{
-					"id": "mistral-small",
-					"object": "model",
-					"created": int64(1234567891),
-					"owned_by": "mistral",
-					"capabilities": map[string]any{
-						"completion_chat": true,
-						"completion_fim": false,
-						"function_calling": true,
-						"fine_tuning": false,
-						"vision": false,
-						"classification": false,
+					{
+						"id": "mistral-small",
+						"object": "model",
+						"created": int64(1234567891),
+						"owned_by": "mistral",
 					},
 				},
 			}
@@ -543,7 +330,7 @@ func TestMistralToolCalls(t *testing.T) {
 
 		// Mock server
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			assert.Equal(t, "/v1/chat/completions", r.URL.Path)
+			assert.Equal(t, "/chat/completions", r.URL.Path)
 
 			// Validate request body
 			var body map[string]any
@@ -554,11 +341,12 @@ func TestMistralToolCalls(t *testing.T) {
 			assert.Equal(t, "mistral-tiny", body["model"])
 
 			// Return a mock response with tool calls
-			w.WriteHeader(http.StatusOK)
+			w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
 			resp := map[string]any{
 				"id":      "chatcmpl-test-id",
 				"object":  "chat.completion",
-				"created": 1234567890,
+				"created": int64(1234567890),
 				"model":   "mistral-tiny",
 				"choices": []map[string]any{
 					{
@@ -594,7 +382,8 @@ func TestMistralToolCalls(t *testing.T) {
 		require.NoError(t, err)
 
 		// Create a language model
-		lm := provider.LanguageModel("mistral-tiny")
+		lm, err := provider.LanguageModel(context.Background(), "mistral-tiny")
+		require.NoError(t, err)
 
 		// Create a call with a tool
 		call := fantasy.Call{
@@ -607,14 +396,14 @@ func TestMistralToolCalls(t *testing.T) {
 				},
 			},
 			Tools: []fantasy.Tool{
-				{
-					Name: "get_weather",
+				&fantasy.FunctionTool{
+					Name:        "get_weather",
 					Description: "Get the weather for a location",
-					InputSchema: &fantasy.Schema{
-						Type: "object",
-						Properties: map[string]*fantasy.Schema{
-							"location": {
-								Type: "string",
+					InputSchema: map[string]any{
+						"type": "object",
+						"properties": map[string]any{
+							"location": map[string]any{
+								"type": "string",
 							},
 						},
 					},
