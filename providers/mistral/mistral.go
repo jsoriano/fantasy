@@ -3,6 +3,8 @@ package mistral
 import (
 	"context"
 
+	"github.com/charmbracelet/openai-go/option"
+
 	"charm.land/fantasy"
 )
 
@@ -11,8 +13,9 @@ const Name = "mistral"
 
 // Provider is the Mistral provider implementation.
 type Provider struct {
-	apiKey  string
-	baseURL string
+	apiKey     string
+	baseURL    string
+	httpClient option.HTTPClient
 }
 
 // ProviderOption is a function that configures the Mistral provider.
@@ -22,6 +25,13 @@ type ProviderOption func(*Provider)
 func WithAPIKey(apiKey string) ProviderOption {
 	return func(p *Provider) {
 		p.apiKey = apiKey
+	}
+}
+
+// WithHTTPClient sets the HTTP client for the Mistral provider.
+func WithHTTPClient(client option.HTTPClient) ProviderOption {
+	return func(p *Provider) {
+		p.httpClient = client
 	}
 }
 
@@ -36,7 +46,7 @@ func WithBaseURL(baseURL string) ProviderOption {
 func NewProvider(opts ...ProviderOption) (*Provider, error) {
 	p := &Provider{
 		apiKey:  "",
-		baseURL: "https://api.mistral.ai",
+		baseURL: "https://api.mistral.ai/v1",
 	}
 
 	for _, opt := range opts {
@@ -57,14 +67,14 @@ func (p *Provider) Name() string {
 
 // LanguageModel implements fantasy.Provider.
 func (p *Provider) LanguageModel(_ context.Context, modelID string) (fantasy.LanguageModel, error) {
-	client := newMistralClient(p.apiKey, p.baseURL)
+	client := newMistralClient(p.apiKey, p.baseURL, p.httpClient)
 
 	return newMistralLanguageModel(modelID, client), nil
 }
 
 // ListModels implements fantasy.Provider.
 func (p *Provider) ListModels(ctx context.Context) ([]ModelInfo, error) {
-	client := newMistralClient(p.apiKey, p.baseURL)
+	client := newMistralClient(p.apiKey, p.baseURL, p.httpClient)
 
 	return listMistralModels(ctx, client)
 }

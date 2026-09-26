@@ -9,10 +9,11 @@ import (
 )
 
 // newMistralClient creates a new Mistral API client.
-func newMistralClient(apiKey, baseURL string) openai.Client {
+func newMistralClient(apiKey, baseURL string, client option.HTTPClient) openai.Client {
 	return openai.NewClient(
 		option.WithAPIKey(apiKey),
 		option.WithBaseURL(baseURL),
+		option.WithHTTPClient(client),
 	)
 }
 

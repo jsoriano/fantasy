@@ -1,0 +1,33 @@
+---
+version: 2
+interactions:
+- id: 0
+  request:
+    proto: HTTP/1.1
+    proto_major: 1
+    proto_minor: 1
+    content_length: 219
+    host: ""
+    body: '{"messages":[{"content":"You are a helpful assistant","role":"system"},{"content":"Answer to the Ultimate Question of Life, the Universe, and Everything","role":"user"}],"model":"mistral-small-latest","max_tokens":4000}'
+    headers:
+      Accept:
+      - application/json
+      Content-Type:
+      - application/json
+      User-Agent:
+      - OpenAI/Go 3.64.0
+    url: https://api.mistral.ai/v1/chat/completions
+    method: POST
+  response:
+    proto: HTTP/2.0
+    proto_major: 2
+    proto_minor: 0
+    content_length: -1
+    uncompressed: true
+    body: "{\"id\":\"a917ec4129a6476a934e530e9fa46539\",\"created\":1790433711,\"model\":\"mistral-small-latest\",\"usage\":{\"prompt_tokens\":35,\"total_tokens\":149,\"completion_tokens\":114,\"prompt_tokens_details\":{\"cached_tokens\":0},\"service_tier\":\"standard\"},\"object\":\"chat.completion\",\"choices\":[{\"index\":0,\"finish_reason\":\"stop\",\"message\":{\"role\":\"assistant\",\"tool_calls\":null,\"content\":\"The answer to the Ultimate Question of Life, the Universe, and Everything, as famously provided by the supercomputer **Deep Thought** in Douglas Adams' *The Hitchhiker's Guide to the Galaxy*, is:\\n\\n**42**\\n\\nHowever, the joke is that the characters never actually learn what the Ultimate Question *is*—only the answer. Adams later joked that he chose the number randomly, as it was funny and arbitrary.\\n\\nSo, while the answer is **42**, the deeper meaning is left to interpretation (or existential pondering). \U0001F604\"}}]}"
+    headers:
+      Content-Type:
+      - application/json
+    status: 200 OK
+    code: 200
+    duration: 1.191130185s
